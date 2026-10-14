@@ -1,0 +1,10 @@
+anthropic
+streamlit
+python-dotenv
+pandas
+numpy
+scipy
+openpyxl
+pytest
+python-docx
+reportlab
