@@ -49,7 +49,7 @@ synthetic-data-generator/
 │   ├── documentation.py       # ReportLab PDF & python-docx report generators
 │   └── export.py              # Packaging deliverables into ZIP and individual files
 │
-├── tests/                     # Automated pytest test suite (52 tests across multiple domains)
+├── tests/                     # Automated pytest test suite (55 tests across multiple domains)
 │   ├── test_config.py         # Config validation, placeholder detection & modes
 │   ├── test_claude_client.py  # Mock responses, JSON extraction, prompt loading & errors
 │   ├── test_workbook.py       # Inspection, preservation, template creation & formula safety
@@ -81,24 +81,31 @@ synthetic-data-generator/
 
 ---
 
-## 4. Windows Setup & Handover Instructions
+## 4. Installation & Setup Instructions
 
-Follow these exact steps in **PowerShell**:
-
-### Step 1: Clone or Open the Project
-```powershell
-cd C:\Users\parul\PycharmProjects\synthetic-data-generator
+### Step 1: Clone the Repository
+```bash
+git clone https://github.com/Parul077/synthetic-data-generator.git
+cd synthetic-data-generator
 ```
 
 ### Step 2: Create and Activate a Python 3.11 Virtual Environment
+
+**Windows (PowerShell):**
 ```powershell
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 ```
 *(If you encounter execution policy restrictions in PowerShell, run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` first).*
 
+**macOS / Linux:**
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
 ### Step 3: Install Dependencies
-```powershell
+```bash
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
@@ -106,9 +113,16 @@ pip install -r requirements.txt
 ### Step 4: Configure Environment Variables
 
 For **Offline Development / Testing without an API Key** (Mock Mode):
-```powershell
-Copy-Item .env.example .env
-```
+
+- **Windows (PowerShell):**
+  ```powershell
+  Copy-Item .env.example .env
+  ```
+- **macOS / Linux:**
+  ```bash
+  cp .env.example .env
+  ```
+
 Ensure `.env` contains:
 ```ini
 CLAUDE_MOCK_MODE=true
@@ -117,7 +131,7 @@ ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
 ANTHROPIC_MAX_TOKENS=4096
 ```
 
-For **Live Claude API Mode** (Recipient Handover):
+For **Live Claude API Mode**:
 Update `.env` with your real Anthropic API key:
 ```ini
 CLAUDE_MOCK_MODE=false
@@ -131,7 +145,7 @@ ANTHROPIC_MAX_TOKENS=4096
 ## 5. Running the Application
 
 Launch the Streamlit dashboard:
-```powershell
+```bash
 streamlit run app.py
 ```
 Open your browser to `http://localhost:8501`.
@@ -194,11 +208,12 @@ Open your browser to `http://localhost:8501`.
 
 ## 8. Automated Testing
 
-All 44 automated tests run offline in Mock Mode and require no Anthropic credentials:
+All 55 automated tests run offline in Mock Mode and require no Anthropic credentials:
 
-```powershell
-.\venv\Scripts\pytest.exe -v
+```bash
+pytest -v
 ```
+*(On Windows, you can also run: `.\venv\Scripts\pytest.exe -v`)*
 
 ### Test Coverage Highlights:
 - **`tests/test_workbook.py`**: Validates inspection, formula detection, merged cells, preservation of original bytes, safe specification writing, and sample template generation.
