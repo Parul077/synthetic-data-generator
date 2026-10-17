@@ -1,10 +1,15 @@
 import io
 import json
 import logging
+import warnings
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import streamlit as st
+
+# Filter benign UserWarning from openpyxl
+warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 from app.claude_client import (
     propose_generation_config,
@@ -539,10 +544,17 @@ with tab_de:
         if st.session_state.synthetic_df is not None:
             df = st.session_state.synthetic_df
             st.subheader("2. Dataset Preview & Summary")
-            st.dataframe(df.head(25), use_container_width=True)
+            st.dataframe(df.head(25), width="stretch")
 
             with st.expander("Descriptive Statistics"):
-                st.dataframe(df.describe(include="all"), use_container_width=True)
+                numeric_cols = df.select_dtypes(include=[np.number])
+                if not numeric_cols.empty:
+                    st.caption("**Numerical Features Summary**")
+                    st.dataframe(numeric_cols.describe().round(4), width="stretch")
+                cat_cols = df.select_dtypes(exclude=[np.number])
+                if not cat_cols.empty:
+                    st.caption("**Categorical & Identifier Features Summary**")
+                    st.dataframe(cat_cols.describe().astype(str), width="stretch")
 
             st.markdown("---")
             st.info(
@@ -593,7 +605,7 @@ with tab_f:
             st.subheader("Detailed Validation Traceability Table")
             val_rows = [i.to_dict() for i in report.items]
             val_df = pd.DataFrame(val_rows)
-            st.dataframe(val_df, use_container_width=True)
+            st.dataframe(val_df, width="stretch")
 
             st.markdown("---")
             st.info(

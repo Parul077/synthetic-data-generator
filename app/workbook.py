@@ -1,6 +1,10 @@
 import logging
+import warnings
 from io import BytesIO
 from typing import Any
+
+# Filter benign UserWarning from openpyxl about data validation extension
+warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.cell.cell import Cell, MergedCell
@@ -122,7 +126,7 @@ def _resolve_target_cell(ws: Any, cell_coord: str) -> Any:
                 and rng.min_col <= cell.column <= rng.max_col
             ):
                 root_cell = ws.cell(row=rng.min_row, column=rng.min_col)
-                logger.info(
+                logger.debug(
                     "Cell %s is a MergedCell in range %s. Writing to top-left root cell %s.",
                     clean_coord,
                     rng,
