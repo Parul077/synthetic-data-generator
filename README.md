@@ -49,7 +49,7 @@ synthetic-data-generator/
 │   ├── documentation.py       # ReportLab PDF & python-docx report generators
 │   └── export.py              # Packaging deliverables into ZIP and individual files
 │
-├── tests/                     # Automated pytest test suite (61 tests across multiple domains)
+├── tests/                     # Automated pytest test suite (63 tests across multiple domains)
 │   ├── test_config.py         # Config validation, placeholder detection & modes
 │   ├── test_claude_client.py  # Mock responses, JSON extraction, prompt loading & errors
 │   ├── test_workbook.py       # Inspection, preservation, template creation & formula safety
@@ -155,9 +155,77 @@ Open your browser to `http://localhost:8501`.
 
 ## 6. Application Workflow Guide
 
+### End-to-End Pipeline Overview
+
+```mermaid
+flowchart LR
+    A["Stage A<br/>Project & Template"] --> B["Stage B<br/>Specification Builder"]
+    B --> C["Stage C<br/>Approval & Workbook"]
+    C --> DE["Stages D & E<br/>Python Generation"]
+    DE --> F["Stage F<br/>Quality Validation"]
+    F --> G["Stage G<br/>Export Deliverables"]
+```
+
+### Detailed System Architecture & Execution Flowchart
+
+```mermaid
+flowchart TD
+    subgraph StageA ["Stage A: Setup & Inspection"]
+        A1["1. Upload Empty Specification (.xlsx)"] --> A2["2. Non-Destructive Inspection (openpyxl)"]
+        A2 --> A3["3. Configure Project Metadata"]
+    end
+
+    subgraph StageB ["Stage B: AI Specification Builder"]
+        B4["4. Claude Interprets Requirements<br/>(prompts/specification_system.txt)"]
+        B5["5. Interactive Review & Item Approval<br/>(Manual Fallback Available)"]
+        B4 --> B5
+    end
+
+    subgraph StageC ["Stage C: Validation & Workbook Export"]
+        C6{"6. Pre-Generation<br/>Specification Validation"}
+        C7["7. Generate Completed .xlsx Copy<br/>(Original Preserved)"]
+    end
+
+    subgraph StageDE ["Stages D & E: Deterministic Python Engine"]
+        DE8["8. Convert to GenerationConfig Schema"]
+        DE9["9. Generate Base Features & Copula Correlations<br/>(NumPy / SciPy)"]
+        DE10["10. AST Safe Formula Evaluation<br/>(Zero eval)"]
+        DE11["11. Inject Configured 15% Noise"]
+        DE12["12. Re-enforce Hard Bounds & Recompute Formulas"]
+        
+        DE8 --> DE9
+        DE9 --> DE10
+        DE10 --> DE11
+        DE11 --> DE12
+    end
+
+    subgraph StageF ["Stage F: Quality Validation & Repair"]
+        F13["13. Execute Python Quality Checks<br/>(PASS / WARNING / FAIL / NOT TESTED)"]
+        F14{"14. Bounded Repair Loop<br/>(Iteration <= 3)"}
+        F15["15. Report Unresolved Issues Honestly"]
+    end
+
+    subgraph StageG ["Stage G: Packaging & Deliverables"]
+        G16["16. Download Deliverables Package (.zip)"]
+    end
+
+    %% Workflow Connections & Feedback Loops
+    A3 --> B4
+    B5 --> C6
+    C6 -- "Pass" --> C7
+    C6 -- "Fail" --> B5
+    C7 --> DE8
+    DE12 --> F13
+    F13 -- "Failures Detected" --> F14
+    F14 -- "Repair" --> DE12
+    F14 -- "Max Iterations Exceeded" --> F15
+    F13 -- "All Checks Pass" --> G16
+    F15 --> G16
+```
+
 ### Stage A: Project Creation & Setup
 1. Enter or review project metadata (Project Name, Domain, Country, Objective, Structure, Record Count, Random Seed).
-2. Either upload an existing `.xlsx` specification workbook, or click **"Load Investment Customer Template"** in the sidebar to populate the pre-built reference template.
+2. Either upload an existing `.xlsx` specification workbook, or click **"Generate Template for Current Project"** in the sidebar to create an initial template tailored to your current project definition.
 3. Review worksheet metadata, detected formulas, merged cells, and populated cell summaries.
 
 ### Stage B: AI-Assisted Specification Builder
@@ -241,6 +309,6 @@ pytest -v
 | Issue / Symptom | Cause | Solution |
 | :--- | :--- | :--- |
 | `ANTHROPIC_API_KEY is missing or contains placeholder text` | Live mode (`CLAUDE_MOCK_MODE=false`) is enabled without a valid API key. | Add your Anthropic API key to `.env`, or set `CLAUDE_MOCK_MODE=true` to test offline. |
-| `Data Validation extension is not supported and will be removed` | Openpyxl warning for complex Excel XML extension tags. | Expected openpyxl behavior; data validation lists are preserved via standard openpyxl DataValidation rules. |
+| `Data Validation extension is not supported and will be removed` | Openpyxl warning for complex Excel XML extension tags. | Automatically filtered and suppressed by the application; data validation rules remain intact. |
 | `Authentication failed. Check your API key` | Expired or incorrect Anthropic API key. | Verify credentials and billing in your Anthropic Console account. |
 | Streamlit page doesn't update after state change | Streamlit rerun lifecycle | Click the corresponding action button or reset session state from the sidebar. |
