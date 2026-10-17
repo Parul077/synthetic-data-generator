@@ -325,6 +325,13 @@ with tab_a:
                 "or click **'Generate Template for Current Project'** in the sidebar to create one instantly."
             )
 
+    if st.session_state.workbook_bytes:
+        st.markdown("---")
+        st.success(
+            "✅ **Stage A Complete!** Your project definition and workbook are loaded.\n\n"
+            "👉 **Next Step:** Click the **Stage B: Specification Builder** tab at the top of your screen to generate and review AI specification suggestions."
+        )
+
 
 # ==========================================
 # STAGE B: AI-Assisted Specification Builder
@@ -430,6 +437,12 @@ with tab_b:
                     st.success(f"Added item {m_cell} to specifications.")
                     st.rerun()
 
+        if st.session_state.spec_suggestions:
+            st.markdown("---")
+            st.info(
+                "👉 **Next Step:** Review the suggestions above, ensure desired items are marked **Approved**, then click the **Stage C: Approval & Workbook** tab at the top to validate and finalize your workbook."
+            )
+
 
 # ==========================================
 # STAGE C: Specification Approval
@@ -481,6 +494,10 @@ with tab_c:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True,
             )
+            st.markdown("---")
+            st.info(
+                "👉 **Next Step:** Specification approved and workbook generated! Click the **Stage D & E: Data Generation** tab at the top to generate synthetic data with Python."
+            )
 
 
 # ==========================================
@@ -527,6 +544,11 @@ with tab_de:
             with st.expander("Descriptive Statistics"):
                 st.dataframe(df.describe(include="all"), use_container_width=True)
 
+            st.markdown("---")
+            st.info(
+                "👉 **Next Step:** Synthetic dataset generated! Click the **Stage F: Quality Validation** tab at the top to run automated quality and noise checks."
+            )
+
 
 # ==========================================
 # STAGE F: Quality Validation
@@ -572,6 +594,11 @@ with tab_f:
             val_rows = [i.to_dict() for i in report.items]
             val_df = pd.DataFrame(val_rows)
             st.dataframe(val_df, use_container_width=True)
+
+            st.markdown("---")
+            st.info(
+                "👉 **Next Step:** Validation checks completed! Click the **Stage G: Export & Deliverables** tab at the top to download your complete ZIP package (dataset, documentation, reproducible Python code, and quality reports)."
+            )
 
 
 # ==========================================
