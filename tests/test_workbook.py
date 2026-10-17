@@ -162,3 +162,56 @@ def test_create_project_template_workbook_generic_domains():
     })
     inspected_hc = inspect_workbook(hc_bytes)
     assert "Business_Rules" in inspected_hc["sheet_names"]
+
+
+def test_apply_approved_specification_handles_merged_cells():
+    """Verify that writing to a cell coordinate that falls inside a merged range does not raise AttributeError: MergedCell is read-only."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Specification"
+
+    # Merge A1:D2
+    ws.merge_cells("A1:D2")
+
+    buf = BytesIO()
+    wb.save(buf)
+    wb.close()
+    raw_bytes = buf.getvalue()
+
+    # B1 is a MergedCell inside A1:D2
+    approved = [
+        {"sheet_name": "Specification", "cell": "B1", "proposed_value": "Merged Title Entry"},
+    ]
+
+    result_bytes = apply_approved_specification(raw_bytes, approved)
+
+    reopened = load_workbook(BytesIO(result_bytes), data_only=False)
+    try:
+        # The top-left cell A1 must have received the value
+        assert reopened["Specification"]["A1"].value == "Merged Title Entry"
+    finally:
+        reopened.close()
+
+
+def test_apply_approved_specification_handles_lowercase_and_whitespace_coords():
+    """Verify coordinate normalization with lowercase and surrounding whitespace."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Specification"
+    ws.merge_cells("B4:D4")
+
+    buf = BytesIO()
+    wb.save(buf)
+    wb.close()
+    raw_bytes = buf.getvalue()
+
+    approved = [
+        {"sheet_name": "Specification", "cell": " c4 ", "proposed_value": "Normalized Coordinate Value"},
+    ]
+
+    result_bytes = apply_approved_specification(raw_bytes, approved)
+    reopened = load_workbook(BytesIO(result_bytes), data_only=False)
+    try:
+        assert reopened["Specification"]["B4"].value == "Normalized Coordinate Value"
+    finally:
+        reopened.close()

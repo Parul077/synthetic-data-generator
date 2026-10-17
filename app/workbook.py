@@ -3,6 +3,7 @@ from io import BytesIO
 from typing import Any
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.cell.cell import Cell, MergedCell
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.worksheet.datavalidation import DataValidation
 
@@ -99,6 +100,39 @@ def inspect_workbook(file_bytes: bytes) -> dict[str, Any]:
         workbook.close()
 
 
+def _resolve_target_cell(ws: Any, cell_coord: str) -> Any:
+    """
+    Safely resolve the target cell for writing.
+    If the specified coordinate points to a MergedCell (which openpyxl treats as read-only),
+    resolve to the top-left root Cell of the containing merged range where values must be written.
+    """
+    clean_coord = str(cell_coord).upper().strip()
+    try:
+        cell = ws[clean_coord]
+    except Exception as exc:
+        logger.warning("Invalid cell coordinate '%s': %s", clean_coord, exc)
+        return None
+
+    if isinstance(cell, MergedCell) or type(cell).__name__ == "MergedCell":
+        # Search merged cell ranges for the range containing this cell coordinate
+        for rng in ws.merged_cells.ranges:
+            if clean_coord in rng or (
+                hasattr(cell, "row") and hasattr(cell, "column")
+                and rng.min_row <= cell.row <= rng.max_row
+                and rng.min_col <= cell.column <= rng.max_col
+            ):
+                root_cell = ws.cell(row=rng.min_row, column=rng.min_col)
+                logger.info(
+                    "Cell %s is a MergedCell in range %s. Writing to top-left root cell %s.",
+                    clean_coord,
+                    rng,
+                    root_cell.coordinate,
+                )
+                return root_cell
+
+    return cell
+
+
 def apply_approved_specification(
     template_bytes: bytes,
     approved_items: list[dict[str, Any]],
@@ -107,6 +141,7 @@ def apply_approved_specification(
     Safely write approved specification values into a separate copy of the workbook.
     Never modifies the original workbook bytes.
     Protects formula cells, headings, and non-approved cells.
+    Handles merged cells transparently by writing to the top-left root cell.
     """
     if not template_bytes:
         raise ValueError("Template workbook bytes cannot be empty.")
@@ -128,24 +163,47 @@ def apply_approved_specification(
                 continue
 
             ws = workbook[sheet_name]
-            try:
-                cell = ws[cell_coord]
-            except Exception as exc:
-                logger.warning("Invalid cell coordinate '%s': %s", cell_coord, exc)
+            cell = _resolve_target_cell(ws, cell_coord)
+            if cell is None:
                 continue
 
             # Check if cell is an existing formula
-            if cell.data_type == "f" or (isinstance(cell.value, str) and cell.value.startswith("=")):
+            if getattr(cell, "data_type", None) == "f" or (
+                isinstance(getattr(cell, "value", None), str)
+                and str(cell.value).startswith("=")
+            ):
                 logger.warning(
                     "Skipping cell %s on sheet %s because it contains a formula (%s).",
                     cell_coord,
                     sheet_name,
-                    cell.value,
+                    getattr(cell, "value", None),
                 )
                 continue
 
-            # Assign approved value
-            cell.value = val
+            # Assign approved value safely
+            try:
+                cell.value = val
+            except AttributeError as attr_err:
+                # Defensive recovery in case openpyxl didn't resolve to root Cell
+                logger.warning(
+                    "Could not set value directly on cell %s (%s): %s. Attempting range search...",
+                    cell_coord,
+                    type(cell).__name__,
+                    attr_err,
+                )
+                resolved = False
+                for rng in ws.merged_cells.ranges:
+                    if (
+                        hasattr(cell, "row") and hasattr(cell, "column")
+                        and rng.min_row <= cell.row <= rng.max_row
+                        and rng.min_col <= cell.column <= rng.max_col
+                    ):
+                        root_cell = ws.cell(row=rng.min_row, column=rng.min_col)
+                        root_cell.value = val
+                        resolved = True
+                        break
+                if not resolved:
+                    logger.warning("Failed to write to cell %s: %s", cell_coord, attr_err)
 
         workbook.save(output_stream)
         return output_stream.getvalue()
