@@ -13,6 +13,7 @@ from app.config import (
     ANTHROPIC_MAX_TOKENS,
     ANTHROPIC_MODEL,
     PROMPTS_DIR,
+    get_max_tokens_for_task,
     get_mock_mode,
     validate_config,
 )
@@ -37,21 +38,23 @@ def load_system_prompt(filename: str) -> str:
 
 
 def create_client() -> Anthropic:
-    """Create the official Anthropic API client."""
+    """Create the official Anthropic API client with generous timeout for long-running tasks."""
     validate_config()
     return Anthropic(
         api_key=ANTHROPIC_API_KEY,
-        timeout=45.0,
+        timeout=120.0,
         max_retries=2,
     )
 
 
 def extract_json_from_text(text: str) -> Any:
-    """Extract and parse JSON from Claude response, handling code fence blocks."""
+    """Extract and parse JSON from Claude response, handling code fence blocks and structural repairs."""
     cleaned = text.strip()
     code_block_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned)
     if code_block_match:
         cleaned = code_block_match.group(1).strip()
+    elif cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned).strip()
 
     try:
         return json.loads(cleaned)
@@ -67,7 +70,131 @@ def extract_json_from_text(text: str) -> Any:
                 return json.loads(substring)
             except json.JSONDecodeError:
                 pass
+
+        # Bracket balancing repair for truncated streaming JSON responses
+        if first_bracket != -1:
+            candidate = cleaned[first_bracket:].rstrip().rstrip(",")
+            stack: list[str] = []
+            in_string = False
+            escape = False
+            for ch in candidate:
+                if ch == '"' and not escape:
+                    in_string = not in_string
+                elif not in_string:
+                    if ch in "{[":
+                        stack.append(ch)
+                    elif ch == "}" and stack and stack[-1] == "{":
+                        stack.pop()
+                    elif ch == "]" and stack and stack[-1] == "[":
+                        stack.pop()
+                escape = (ch == "\\" and not escape)
+
+            if stack:
+                closers = {"{": "}", "[": "]"}
+                repaired = candidate + "".join(closers[b] for b in reversed(stack))
+                try:
+                    return json.loads(repaired)
+                except json.JSONDecodeError:
+                    pass
+
         raise RuntimeError(f"Claude returned invalid JSON: {exc}") from exc
+
+
+def call_claude_with_continuation(
+    client: Anthropic,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    task: str = "general",
+    max_continuations: int = 5,
+) -> str:
+    """
+    Execute an Anthropic Messages API call with dynamic task token limits and
+    automatic resumption/continuation when a response hits stop_reason == 'max_tokens'.
+
+    Ensures long-running tasks can complete reliably without truncation or losing progress.
+    """
+    max_tokens = get_max_tokens_for_task(task, model)
+    logger.info("Executing Claude request (model=%s, max_tokens=%d, task=%s)", model, max_tokens, task)
+
+    messages: list[dict[str, Any]] = [{"role": "user", "content": user_prompt}]
+    accumulated_chunks: list[str] = []
+    iteration = 0
+
+    while iteration <= max_continuations:
+        iteration += 1
+
+        try:
+            response = client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=messages,
+            )
+        except anthropic.BadRequestError as bad_req_err:
+            # Fallback if assistant prefill continuation was rejected by an endpoint
+            if len(messages) > 1 and messages[-1].get("role") == "assistant":
+                logger.warning(
+                    "Assistant prefill rejected on chunk %d (%s). Falling back to multi-turn continuation prompt.",
+                    iteration,
+                    bad_req_err,
+                )
+                prev_text = "".join(accumulated_chunks)
+                messages = [
+                    {"role": "user", "content": user_prompt},
+                    {"role": "assistant", "content": prev_text},
+                    {
+                        "role": "user",
+                        "content": "You reached the output token limit. Please continue your response starting exactly from where you stopped without repeating any previous text.",
+                    },
+                ]
+                response = client.messages.create(
+                    model=model,
+                    max_tokens=max_tokens,
+                    system=system_prompt,
+                    messages=messages,
+                )
+            else:
+                raise
+
+        chunk = "".join(b.text for b in response.content if b.type == "text")
+        accumulated_chunks.append(chunk)
+
+        stop_reason = getattr(response, "stop_reason", None) or "end_turn"
+        logger.info(
+            "Claude chunk %d completed (%d chars, stop_reason=%s)",
+            iteration,
+            len(chunk),
+            stop_reason,
+        )
+
+        if stop_reason != "max_tokens":
+            # Normal completion reached
+            break
+
+        if iteration > max_continuations:
+            logger.warning(
+                "Reached maximum allowed continuations (%d) for task '%s'. Finalizing with assembled output.",
+                max_continuations,
+                task,
+            )
+            break
+
+        logger.info(
+            "Output limit (%d tokens) reached on chunk %d for task '%s'. Seamlessly continuing generation without restarting...",
+            max_tokens,
+            iteration,
+            task,
+        )
+
+        # Build continuation messages: assistant prefill with full accumulated text
+        full_so_far = "".join(accumulated_chunks)
+        messages = [
+            {"role": "user", "content": user_prompt},
+            {"role": "assistant", "content": full_so_far},
+        ]
+
+    return "".join(accumulated_chunks)
 
 
 def test_connection() -> str:
@@ -83,7 +210,7 @@ def test_connection() -> str:
     try:
         response = client.messages.create(
             model=ANTHROPIC_MODEL,
-            max_tokens=ANTHROPIC_MAX_TOKENS,
+            max_tokens=get_max_tokens_for_task("connectivity_check", ANTHROPIC_MODEL),
             messages=[
                 {
                     "role": "user",
@@ -1160,14 +1287,13 @@ Return ONLY a valid JSON list of objects matching this exact structure:
 """
 
     try:
-        response = client.messages.create(
+        text = call_claude_with_continuation(
+            client=client,
             model=ANTHROPIC_MODEL,
-            max_tokens=ANTHROPIC_MAX_TOKENS,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            task="specification",
         )
-
-        text = "\n".join(b.text for b in response.content if b.type == "text")
         parsed = extract_json_from_text(text)
 
         if not isinstance(parsed, list):
@@ -1216,14 +1342,13 @@ Return ONLY the JSON object. Do not include markdown or explanations outside the
 """
 
     try:
-        response = client.messages.create(
+        text = call_claude_with_continuation(
+            client=client,
             model=ANTHROPIC_MODEL,
-            max_tokens=ANTHROPIC_MAX_TOKENS,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            task="generation_config",
         )
-
-        text = "\n".join(b.text for b in response.content if b.type == "text")
         parsed = extract_json_from_text(text)
 
         if not isinstance(parsed, dict):

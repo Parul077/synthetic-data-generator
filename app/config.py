@@ -16,10 +16,67 @@ def get_mock_mode() -> bool:
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022").strip()
 
-try:
-    ANTHROPIC_MAX_TOKENS = int(os.getenv("ANTHROPIC_MAX_TOKENS", "4096"))
-except ValueError:
-    ANTHROPIC_MAX_TOKENS = 4096
+DEFAULT_MODEL_MAX_OUTPUT_TOKENS: dict[str, int] = {
+    # Claude 3.5 Sonnet / Haiku models (8192 max output tokens)
+    "claude-3-5-sonnet-20241022": 8192,
+    "claude-3-5-sonnet-20240620": 8192,
+    "claude-3-5-sonnet-latest": 8192,
+    "claude-3-5-haiku-20241022": 8192,
+    "claude-3-5-haiku-latest": 8192,
+    # Claude 3.7 Sonnet models (up to 64000 max output tokens)
+    "claude-3-7-sonnet-20250219": 64000,
+    "claude-3-7-sonnet-latest": 64000,
+    # Claude 3 Opus / Haiku / Sonnet (4096 max output tokens)
+    "claude-3-opus-20240229": 4096,
+    "claude-3-opus-latest": 4096,
+    "claude-3-sonnet-20240229": 4096,
+    "claude-3-haiku-20240307": 4096,
+}
+
+FALLBACK_MAX_OUTPUT_TOKENS = 8192
+
+
+def get_model_token_ceiling(model_name: str | None = None) -> int:
+    """Return the maximum supported output token limit for a given Anthropic model."""
+    target = (model_name or os.getenv("ANTHROPIC_MODEL") or ANTHROPIC_MODEL or "claude-3-5-sonnet-20241022").strip().lower()
+    for pattern, limit in DEFAULT_MODEL_MAX_OUTPUT_TOKENS.items():
+        if pattern in target:
+            return limit
+    if "3-7" in target:
+        return 64000
+    if "3-5" in target:
+        return 8192
+    if "3" in target:
+        return 4096
+    return FALLBACK_MAX_OUTPUT_TOKENS
+
+
+def get_max_tokens_for_task(task: str = "general", model_name: str | None = None) -> int:
+    """
+    Determine the optimal max_tokens parameter dynamically based on task requirements and model limits.
+    If ANTHROPIC_MAX_TOKENS is explicitly set in .env, it is respected (capped at the model ceiling).
+    Otherwise, automatically allocates high capacity for long tasks and minimal capacity for quick checks.
+    """
+    ceiling = get_model_token_ceiling(model_name)
+    env_override = os.getenv("ANTHROPIC_MAX_TOKENS", "").strip()
+    if env_override:
+        try:
+            val = int(env_override)
+            if val > 0:
+                return min(val, ceiling)
+        except ValueError:
+            pass
+
+    if task == "connectivity_check":
+        return 256
+    elif task in ("specification", "generation_config", "large_generation"):
+        return min(8192, ceiling)
+    else:
+        return min(8192, ceiling)
+
+
+# Backward-compatible global token limit (resolved dynamically based on model)
+ANTHROPIC_MAX_TOKENS = get_max_tokens_for_task("general", ANTHROPIC_MODEL)
 
 CLAUDE_MOCK_MODE = get_mock_mode()
 
@@ -41,6 +98,7 @@ def validate_config() -> None:
     Validate Anthropic API settings.
     In mock mode, no key is needed.
     In live mode, a valid non-placeholder API key and model are required.
+    ANTHROPIC_MAX_TOKENS is optional; if provided, it must be a positive integer.
     """
     current_mock = get_mock_mode()
     if current_mock:
@@ -58,12 +116,14 @@ def validate_config() -> None:
     if not model:
         raise ValueError("ANTHROPIC_MODEL cannot be empty.")
 
-    try:
-        max_tokens = int(os.getenv("ANTHROPIC_MAX_TOKENS", "4096"))
-        if max_tokens < 1:
-            raise ValueError()
-    except ValueError:
-        raise ValueError("ANTHROPIC_MAX_TOKENS must be a positive integer.")
+    raw_tokens = os.getenv("ANTHROPIC_MAX_TOKENS", "").strip()
+    if raw_tokens:
+        try:
+            max_tokens = int(raw_tokens)
+            if max_tokens < 1:
+                raise ValueError()
+        except ValueError:
+            raise ValueError("ANTHROPIC_MAX_TOKENS must be a positive integer.")
 
 
 # Pre-defined domain presets for quick start (users can also select Custom / Blank)

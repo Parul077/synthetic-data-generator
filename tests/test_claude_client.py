@@ -157,3 +157,65 @@ def test_live_mode_rate_limit_error_handling(monkeypatch):
     with patch("app.claude_client.create_client", return_value=mock_client):
         with pytest.raises(RuntimeError, match="rate limit or usage quota"):
             run_test_connection()
+
+
+def test_call_claude_with_continuation_stitches_truncated_chunks():
+    from app.claude_client import call_claude_with_continuation
+
+    mock_client = MagicMock()
+
+    # Mock block object with type="text" and text attribute
+    block1 = MagicMock(type="text", text='[{"field": "col1", ')
+    block2 = MagicMock(type="text", text='"proposed_value": 100}]')
+
+    resp1 = MagicMock(content=[block1], stop_reason="max_tokens")
+    resp2 = MagicMock(content=[block2], stop_reason="end_turn")
+
+    mock_client.messages.create.side_effect = [resp1, resp2]
+
+    assembled = call_claude_with_continuation(
+        client=mock_client,
+        model="claude-3-5-sonnet-20241022",
+        system_prompt="You are an analyst.",
+        user_prompt="Generate json",
+        task="specification",
+    )
+
+    assert assembled == '[{"field": "col1", "proposed_value": 100}]'
+    assert mock_client.messages.create.call_count == 2
+
+    # Check that chunk 2 was called with assistant prefill containing chunk 1
+    second_call_args = mock_client.messages.create.call_args_list[1][1]
+    msgs = second_call_args["messages"]
+    assert len(msgs) == 2
+    assert msgs[1]["role"] == "assistant"
+    assert msgs[1]["content"] == '[{"field": "col1", '
+
+
+def test_call_claude_with_continuation_single_turn():
+    from app.claude_client import call_claude_with_continuation
+
+    mock_client = MagicMock()
+    block = MagicMock(type="text", text='{"status": "ok"}')
+    resp = MagicMock(content=[block], stop_reason="end_turn")
+    mock_client.messages.create.return_value = resp
+
+    assembled = call_claude_with_continuation(
+        client=mock_client,
+        model="claude-3-5-sonnet-20241022",
+        system_prompt="system",
+        user_prompt="user",
+        task="general",
+    )
+
+    assert assembled == '{"status": "ok"}'
+    assert mock_client.messages.create.call_count == 1
+
+
+def test_extract_json_from_text_repairs_unclosed_brackets():
+    # Truncated array missing closing bracket
+    truncated_array = '[{"sheet_name": "Sheet1", "cell": "B2", "proposed_value": "test"}'
+    repaired = extract_json_from_text(truncated_array)
+    assert isinstance(repaired, list)
+    assert repaired[0]["cell"] == "B2"
+

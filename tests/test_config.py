@@ -57,3 +57,42 @@ def test_get_mock_mode_parsing(monkeypatch):
     assert get_mock_mode() is False
     monkeypatch.setenv("CLAUDE_MOCK_MODE", "0")
     assert get_mock_mode() is False
+
+
+def test_live_mode_allows_missing_max_tokens(monkeypatch):
+    monkeypatch.setenv("CLAUDE_MOCK_MODE", "false")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-validkey123")
+    monkeypatch.setenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+    monkeypatch.delenv("ANTHROPIC_MAX_TOKENS", raising=False)
+    # Should not raise; ANTHROPIC_MAX_TOKENS is optional
+    validate_config()
+
+
+def test_get_max_tokens_for_task_dynamic_model_resolution(monkeypatch):
+    from app.config import get_max_tokens_for_task, get_model_token_ceiling
+
+    monkeypatch.delenv("ANTHROPIC_MAX_TOKENS", raising=False)
+
+    # Claude 3.5 Sonnet supports 8192 tokens
+    assert get_model_token_ceiling("claude-3-5-sonnet-20241022") == 8192
+    assert get_max_tokens_for_task("specification", "claude-3-5-sonnet-20241022") == 8192
+    assert get_max_tokens_for_task("connectivity_check", "claude-3-5-sonnet-20241022") == 256
+
+    # Claude 3.7 Sonnet supports up to 64000 tokens
+    assert get_model_token_ceiling("claude-3-7-sonnet-20250219") == 64000
+
+    # Claude 3 Opus supports 4096 tokens
+    assert get_model_token_ceiling("claude-3-opus-20240229") == 4096
+    assert get_max_tokens_for_task("specification", "claude-3-opus-20240229") == 4096
+
+
+def test_get_max_tokens_for_task_respects_env_override(monkeypatch):
+    from app.config import get_max_tokens_for_task
+
+    monkeypatch.setenv("ANTHROPIC_MAX_TOKENS", "2048")
+    assert get_max_tokens_for_task("specification", "claude-3-5-sonnet-20241022") == 2048
+
+    # If user requests 50000 on a model that only supports 8192, cap at model ceiling
+    monkeypatch.setenv("ANTHROPIC_MAX_TOKENS", "50000")
+    assert get_max_tokens_for_task("specification", "claude-3-5-sonnet-20241022") == 8192
+

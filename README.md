@@ -49,7 +49,7 @@ synthetic-data-generator/
 │   ├── documentation.py       # ReportLab PDF & python-docx report generators
 │   └── export.py              # Packaging deliverables into ZIP and individual files
 │
-├── tests/                     # Automated pytest test suite (55 tests across multiple domains)
+├── tests/                     # Automated pytest test suite (61 tests across multiple domains)
 │   ├── test_config.py         # Config validation, placeholder detection & modes
 │   ├── test_claude_client.py  # Mock responses, JSON extraction, prompt loading & errors
 │   ├── test_workbook.py       # Inspection, preservation, template creation & formula safety
@@ -128,7 +128,9 @@ Ensure `.env` contains:
 CLAUDE_MOCK_MODE=true
 ANTHROPIC_API_KEY=your_api_key_here
 ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
-ANTHROPIC_MAX_TOKENS=4096
+# (Optional) ANTHROPIC_MAX_TOKENS: Output token limit override.
+# When omitted, the system dynamically allocates the maximum capacity supported by your model
+# (e.g. 8,192 for Claude 3.5 Sonnet, up to 64,000 for Claude 3.7 Sonnet) with automatic continuation.
 ```
 
 For **Live Claude API Mode**:
@@ -137,7 +139,6 @@ Update `.env` with your real Anthropic API key:
 CLAUDE_MOCK_MODE=false
 ANTHROPIC_API_KEY=sk-ant-api03-...your_actual_key_here...
 ANTHROPIC_MODEL=claude-3-5-sonnet-20241022
-ANTHROPIC_MAX_TOKENS=4096
 ```
 
 ---
@@ -208,7 +209,7 @@ Open your browser to `http://localhost:8501`.
 
 ## 8. Automated Testing
 
-All 55 automated tests run offline in Mock Mode and require no Anthropic credentials:
+All 61 automated tests run offline in Mock Mode and require no Anthropic credentials:
 
 ```bash
 pytest -v
